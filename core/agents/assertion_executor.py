@@ -163,21 +163,7 @@ class AssertionExecutor:
         raw_text: str,
         parsed: Optional[Dict[str, Any]],
     ) -> Optional[AssertionViolation]:
-        """禁用术语扫描（作用于原始文本）"""
-        terms = self._constraint_get(assertion, "terms") or []
-        if not terms or not raw_text:
-            return None
-
-        hit_terms = [t for t in terms if t and t in raw_text]
-        if hit_terms:
-            return AssertionViolation(
-                assertion_id=assertion.assertion_id,
-                assertion_type=assertion.assertion_type,
-                target_agent=assertion.target_agent,
-                severity=assertion.severity,
-                description=assertion.description or "禁用术语扫描",
-                violation_detail=f"命中禁用术语: {hit_terms}",
-            )
+        """本地部署不执行禁用术语扫描，保留入口以兼容已有断言配置。"""
         return None
 
     def _check_field_required(

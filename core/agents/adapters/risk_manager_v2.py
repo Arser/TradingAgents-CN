@@ -7,9 +7,10 @@
 import logging
 from typing import Dict, Any, List, Literal, Optional
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import Field, ValidationError
 
 from core.agents.manager import ManagerAgent
+from core.agents.output_normalization import NormalizedConclusionOutput, validate_report, pending_enum_fields
 from core.agents.config import AgentMetadata, AgentCategory, LicenseTier, AgentInput, AgentOutput
 from core.agents.registry import register_agent
 
@@ -19,14 +20,13 @@ logger = logging.getLogger(__name__)
 # ==================== Schema 契约定义 ====================
 # 目的：让 LLM 从"自由决策输出格式"降级为"翻译一份预定义 schema"，
 # 从源头消除格式不一致（参考桥水 Pat 的"规格驱动"思路）。
-# 合规要求：action / investment_adjustment 只能取值 "乐观"/"审慎"/"中性"，
-# 禁止使用"看涨/看跌/买入/卖出"等交易指令或市场观点术语。
+# action / investment_adjustment 使用固定标签供下游读取，明确的同义表达会规范化并保留原文。
 
 
-class FinalTradeDecision(BaseModel):
+class FinalTradeDecision(NormalizedConclusionOutput):
     """最终研究结论 schema"""
-    # 合规术语：乐观/审慎/中性（禁止使用"看涨/看跌/买入/卖出"等交易指令或市场观点术语）
-    action: Literal["乐观", "审慎", "中性"]
+    view_fields = ("action",)
+    action: Literal["乐观", "审慎", "中性", "待确认"]
     confidence: float = Field(ge=0, le=1)
     price_analysis_range: Optional[str] = None
     risk_reference_price: Optional[str] = None
@@ -36,15 +36,17 @@ class FinalTradeDecision(BaseModel):
     risk_warning: str = ""
 
 
-class RiskAssessmentOutput(BaseModel):
+class RiskAssessmentOutput(NormalizedConclusionOutput):
     """风险审阅结论 schema"""
-    risk_level: Literal["低", "中", "高"]
+    view_fields = ("investment_adjustment",)
+    risk_fields = ("risk_level",)
+    risk_level: Literal["低", "中", "高", "待确认"]
     risk_score: float = Field(ge=0, le=1)
     reasoning: str
     key_risks: List[str] = Field(default_factory=list)
     risk_control: str = ""
-    # 合规术语：乐观/审慎/中性（同 action 字段）
-    investment_adjustment: Literal["乐观", "审慎", "中性"]
+    # 与 action 使用相同的结论标签。
+    investment_adjustment: Literal["乐观", "审慎", "中性", "待确认"]
     final_trade_decision: FinalTradeDecision
 
 
@@ -531,6 +533,14 @@ class RiskManagerV2(ManagerAgent):
                         "assertion_violations": assertion_violations_dump,
                     },
                 )
+            pending = pending_enum_fields(validated_dict)
+            if pending and result.get("risk_assessment_validation_status") == "passed":
+                result["risk_assessment_validation_status"] = "pending_review"
+                result["risk_assessment_validation_warning"] = "字段待确认: " + ", ".join(pending)
+                self._record_trace_validation(
+                    validation_status="pending_review",
+                    validation_details={"pending_enum_fields": pending},
+                )
         else:
             # ❌ 校验失败：显式上报（不静默兜底），保留原始输出供排查
             logger.error(f"❌ [RiskManagerV2] schema 校验失败: {validation_error}")
@@ -594,34 +604,7 @@ class RiskManagerV2(ManagerAgent):
             (validated_dict, None): 校验通过，dict 可直接序列化为 JSON
             (None, error_msg): 校验失败，error_msg 描述失败原因
         """
-        import json
-        import re
-
-        if not text or not text.strip():
-            return None, "输出为空"
-
-        # 兼容 markdown 代码块包裹的 JSON（```json ... ``` 或 ``` ... ```）
-        text = text.strip()
-        json_str = text
-        json_match = re.search(r'```(?:json)?\s*(.*?)\s*```', text, re.DOTALL)
-        if json_match:
-            json_str = json_match.group(1).strip()
-
-        # 解析 JSON
-        try:
-            json_obj = json.loads(json_str)
-        except json.JSONDecodeError as e:
-            return None, f"JSON 解析失败: {e}"
-
-        if not isinstance(json_obj, dict):
-            return None, f"JSON 顶层不是对象，实际类型: {type(json_obj).__name__}"
-
-        # pydantic schema 校验（含合规术语枚举约束、数值范围约束）
-        try:
-            validated = RiskAssessmentOutput(**json_obj)
-            return validated.model_dump(), None
-        except ValidationError as e:
-            return None, f"Schema 校验失败: {e}"
+        return validate_report(text, RiskAssessmentOutput, getattr(self, "_llm", None))
 
     def _extract_text(self, value: Any) -> str:
         if value is None:

@@ -1,6 +1,6 @@
-"""合规输出工具。
+"""研究报告格式整理工具。
 
-统一收口分析结果中的交易建议型字段，保留研究辅助所需的摘要、风险因素和公开信息观察。
+保留现有调用接口；本地部署不按交易术语过滤正文。
 """
 
 from __future__ import annotations
@@ -27,40 +27,6 @@ GENERIC_REVIEW_IMPROVEMENTS = (
     "复盘时重点检查纪律执行、风险暴露与研究盲区。",
 )
 
-_ACTIONABLE_PATTERNS = [
-    re.compile(pattern, re.IGNORECASE)
-    for pattern in (
-        r"买入|卖出|持有|加仓|减仓|清仓|建仓|平仓|调仓",
-        r"止损|止盈|仓位|目标价|目标价格|目标区间|价格分析区间|参考价格",
-        r"目标位|目标点位|支撑位|阻力位|压力位|配置建议|防御性配置|进攻性配置|安全边际|板块机会",
-        r"投资建议|交易建议|操作建议|一键模拟下单|下单|模拟交易",
-        r"BUY|SELL|HOLD|STRONG_BUY|STRONG_SELL",
-        r"target_price|stop_loss|take_profit|position_ratio|suggested_quantity|suggested_amount",
-    )
-]
-_REVIEW_EXECUTION_PATTERNS = [
-    re.compile(pattern, re.IGNORECASE)
-    for pattern in (
-        r"(建议|可以|可考虑|应当|应该|需要|宜|不宜).{0,12}(买入|卖出|继续持有|持有|加仓|减仓|补仓|清仓|建仓|平仓|调仓)",
-        r"(下次|后续|未来).{0,16}(买入|卖出|继续持有|持有|加仓|减仓|补仓|清仓|建仓|平仓|调仓|止损|止盈)",
-        r"继续持有|逢低买入|逢高卖出|分批买入|分批卖出",
-        r"止损价|止盈价|目标价|目标价格|目标区间|参考价|参考价格",
-        r"(跌破|突破|回调到|反弹到|跌到|涨到|回到).{0,12}(买入|卖出|加仓|减仓|止损|止盈)",
-        r"仓位.{0,8}(\d+%|百分之|\d+成|控制在|提升到|降到|上调到|下调到)",
-        r"\b(BUY|SELL|HOLD|STRONG_BUY|STRONG_SELL)\b",
-        r"一键模拟下单|下单|模拟交易",
-    )
-]
-_POSITION_TRIGGER_PATTERNS = [
-    re.compile(pattern, re.IGNORECASE)
-    for pattern in (
-        r"(?:技术面|基本面|风险|综合)?评分\s*[:：]?\s*\d+(?:\.\d+)?\s*分",
-        r"连续.{0,8}(?:日|天|周).{0,10}(站稳|收盘站稳|放量|缩量|突破|跌破)",
-        r"右侧介入|左侧介入|介入依据|入场依据|退出依据|交易触发|反弹动能",
-        r"\bMA\d+\b|\bRSI\d*\b|\bMACD\b|\bKDJ\b|布林(?:中轨|上轨|下轨)?",
-        r"支撑带|支撑位|阻力位|压力位|放量|缩量|站稳|突破|跌破",
-    )
-]
 _POSITION_LABEL_ONLY_PATTERNS = [
     re.compile(pattern, re.IGNORECASE)
     for pattern in (
@@ -134,17 +100,6 @@ _LOW_SIGNAL_PATTERNS = [
         r"分析报告",
     )
 ]
-_DISPLAY_REPORT_RISK_PATTERNS = [
-    re.compile(pattern, re.IGNORECASE)
-    for pattern in (
-        r"目标价|目标价格|价格区间|关键价位|关键价格|关键验证位|观察区间|参考价|参考价格|风险控制参考",
-        r"支撑位|阻力位|突破|跌破|站稳|失守|止损|止盈|仓位|风险敞口|持仓周期",
-        r"上涨空间|下跌空间|上行空间|下行空间|收益空间|收益预期|最大收益|潜在收益|回撤|最大可能损失",
-        r"风险收益比|期望收益|安全边际|配置价值|逆向投资机会|买入信号|卖出信号|入场|退出条件|操作策略",
-        r"增持观点|减持观点|建仓|平仓|调仓|重仓|轻仓|分批买入|分批卖出|看涨价位|看跌价位",
-        r"(?:¥|￥|\$)\s*\d|\d+(?:\.\d+)?\s*(?:元|美元|港元)",
-    )
-]
 _INFERENTIAL_EVIDENCE_PATTERNS = [
     re.compile(pattern, re.IGNORECASE)
     for pattern in (
@@ -166,16 +121,6 @@ _DISPLAY_TITLE_REPLACEMENTS = [
     (re.compile(r'^(?P<prefix>#{1,6}\s*)?大盘分析师研究观察报告$', re.IGNORECASE), '大盘环境研究'),
     (re.compile(r'^(?P<prefix>#{1,6}\s*)?大盘环境研究观察报告$', re.IGNORECASE), '大盘环境研究'),
 ]
-
-_DISPLAY_PHRASE_REPLACEMENTS = (
-    ('买入逻辑', '研究逻辑'),
-    ('投资机会', '研究线索'),
-    ('配置型投资者', '研究型用户'),
-    ('配置价值', '研究跟踪价值'),
-    ('安全边际', '风险缓冲'),
-    ('具备一定吸引力', '值得继续跟踪'),
-    ('价值修复的起点', '估值与预期修复的早期信号'),
-)
 
 RESEARCH_ONLY_DISCLAIMER = "本报告仅供研究参考，不构成个股推荐、投资建议或操作依据。请结合公开信息披露与自身研究独立判断。"
 _LEGACY_DISCLAIMER_BLOCK_PATTERN = re.compile(
@@ -221,18 +166,13 @@ def _as_text(value: Any) -> str:
 
 
 def contains_actionable_content(text: str) -> bool:
-    if not text:
-        return False
-    return any(pattern.search(text) for pattern in _ACTIONABLE_PATTERNS)
+    """兼容已有调用；正文中的交易术语不作为过滤依据。"""
+    return False
 
 
 def contains_review_execution_guidance(text: str) -> bool:
-    if not text:
-        return False
-    normalized = _plain_text(text)
-    if not normalized:
-        return False
-    return any(pattern.search(normalized) for pattern in _REVIEW_EXECUTION_PATTERNS)
+    """兼容已有调用；正文中的交易术语不作为过滤依据。"""
+    return False
 
 
 def _plain_text(text: Any) -> str:
@@ -268,9 +208,6 @@ def _normalize_display_line(line: str) -> str:
         if match:
             prefix = match.groupdict().get('prefix') or ''
             return f"{prefix}{replacement}".rstrip()
-
-    for old_text, new_text in _DISPLAY_PHRASE_REPLACEMENTS:
-        normalized_line = normalized_line.replace(old_text, new_text)
 
     return normalized_line
 
@@ -395,12 +332,8 @@ def sanitize_text_block(text: Any, fallback: str = "") -> str:
 
 
 def contains_position_trigger_language(text: str) -> bool:
-    if not text:
-        return False
-    normalized = _plain_text(text)
-    if not normalized:
-        return False
-    return any(pattern.search(normalized) for pattern in _POSITION_TRIGGER_PATTERNS)
+    """兼容已有调用；正文中的交易术语不作为过滤依据。"""
+    return False
 
 
 def _iter_position_review_fragments(text: Any) -> Iterable[str]:
@@ -941,36 +874,14 @@ def sanitize_display_report_text(text: Any, fallback: str = "") -> str:
     if not raw_text:
         return fallback
 
+    # 只整理标题和空行，保留买卖观点、价位及客观资金流描述。
     cleaned_lines: List[str] = []
-    in_disclaimer_block = False
-
     for raw_line in raw_text.splitlines():
         line = _normalize_display_line(raw_line.rstrip())
-        normalized = _plain_text(line)
-
-        if not normalized:
+        if not line.strip():
             if cleaned_lines and cleaned_lines[-1] != "":
                 cleaned_lines.append("")
             continue
-
-        if "免责声明" in normalized or normalized == RESEARCH_ONLY_DISCLAIMER:
-            cleaned_lines.append(line)
-            # 免责声明正文整块保留：跳过可操作内容过滤，直到下一个 markdown 标题
-            in_disclaimer_block = True
-            continue
-
-        if in_disclaimer_block:
-            if line.strip().startswith("#"):
-                in_disclaimer_block = False
-            else:
-                cleaned_lines.append(line)
-                continue
-
-        if contains_actionable_content(normalized):
-            continue
-        if any(pattern.search(normalized) for pattern in _DISPLAY_REPORT_RISK_PATTERNS):
-            continue
-
         cleaned_lines.append(line)
 
     while cleaned_lines and cleaned_lines[0] == "":
@@ -1141,6 +1052,9 @@ def sanitize_analysis_payload(result_data: Dict[str, Any]) -> Dict[str, Any]:
     normalized_action = ""
     if isinstance(decision, dict):
         sanitized_decision: Dict[str, Any] = {}
+        for key in ("original_enum_values", "enum_review_status"):
+            if isinstance(decision.get(key), dict):
+                sanitized_decision[key] = dict(decision[key])
         action = decision.get("analysis_view") or decision.get("action")
         if isinstance(action, str) and action.strip():
             action_mapping = {

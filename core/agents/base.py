@@ -16,6 +16,7 @@ from langchain_core.messages import AIMessage, ToolMessage, HumanMessage
 from langchain_core.tools import BaseTool
 
 from .config import AgentMetadata, AgentConfig
+from .llm_call_policy import single_attempt_model
 
 logger = logging.getLogger(__name__)
 GENERIC_REPORT_FALLBACK = "工具执行或模型生成未完成，当前结论仍待验证。"
@@ -23,6 +24,8 @@ GENERIC_REPORT_FALLBACK = "工具执行或模型生成未完成，当前结论�
 
 def is_retryable_llm_error(error_msg: str) -> bool:
     normalized_error = str(error_msg or "").lower()
+    if any(term in normalized_error for term in ("error code: 401", "error code: 403", "authentication", "invalid api key")):
+        return False
     return (
         "choices" in normalized_error or
         "null value" in normalized_error or
@@ -823,7 +826,7 @@ class BaseAgent(ABC):
             logger.info(f"=" * 100)
 
             # 🔥 添加重试机制（使用 agent 配置的 max_retries，默认3次）
-            max_retries = getattr(self.config, 'max_retries', 3)
+            max_retries = min(getattr(self.config, 'max_retries', 3), 1)
             retry_count = 0
             last_error = None
             
@@ -847,7 +850,11 @@ class BaseAgent(ABC):
                             logger.info(f"🔗 [{self.agent_id}] 重试时使用原始LLM，保留所有参数")
                     
                     _llm_start = time.time()
-                    response = llm_with_tools.invoke(current_messages)
+                    # Agent owns the retry loop; SDK retries must not multiply it.
+                    attempt_llm = single_attempt_model(self._llm)
+                    if self._langchain_tools:
+                        attempt_llm = attempt_llm.bind_tools(self._langchain_tools)
+                    response = attempt_llm.invoke(current_messages)
                     _llm_ms = int((time.time() - _llm_start) * 1000)
                     # 🔑 记录工具调用阶段的 LLM 响应（含 Token 用量）
                     self._record_llm_response_to_trace(response, llm_duration_ms=_llm_ms)
@@ -859,19 +866,7 @@ class BaseAgent(ABC):
                     last_error = e
                     
                     # 🔥 检查是否是 choices 为 null 的错误或其他可重试的错误
-                    is_retryable = (
-                        "choices" in error_msg.lower() or 
-                        "null value" in error_msg.lower() or
-                        "connection" in error_msg.lower() or
-                        "timeout" in error_msg.lower() or
-                        "rate_limit" in error_msg.lower() or  # 🔧 修复：rate_limit 下划线匹配
-                        "rate limit" in error_msg.lower() or
-                        "429" in error_msg or  # 🔧 直接检查 429 状态码
-                        "503" in error_msg or
-                        "502" in error_msg or
-                        "500" in error_msg or
-                        "limit" in error_msg.lower()  # 🔧 兜底：任何含 limit 的错误（如 "request limit for seconds"）
-                    )
+                    is_retryable = is_retryable_llm_error(error_msg)
                     
                     if is_retryable and retry_count < max_retries:
                         retry_count += 1
@@ -978,7 +973,7 @@ class BaseAgent(ABC):
                 logger.info(f"🔗 [{self.agent_id}] 直接调用 LLM 生成报告（无工具绑定）")
                 
                 # 🔥 添加重试机制（使用 agent 配置的 max_retries，默认3次）
-                max_retries = getattr(self.config, 'max_retries', 3)
+                max_retries = min(getattr(self.config, 'max_retries', 3), 1)
                 retry_count = 0
                 last_error = None
                 
@@ -993,7 +988,7 @@ class BaseAgent(ABC):
                         
                         # 🔥 使用原始的 self._llm，确保参数（temperature, max_tokens等）保留
                         _llm_start = time.time()
-                        final_response = self._llm.invoke(current_messages)
+                        final_response = single_attempt_model(self._llm).invoke(current_messages)
                         _llm_ms = int((time.time() - _llm_start) * 1000)
                         # 成功，跳出重试循环
                         break
@@ -1099,7 +1094,7 @@ class BaseAgent(ABC):
                     logger.info(f"🔗 [{self.agent_id}] 重试时直接调用 LLM（无工具绑定）")
                     
                     # 🔥 添加重试机制（使用 agent 配置的 max_retries，默认3次）
-                    max_retries = getattr(self.config, 'max_retries', 3)
+                    max_retries = min(getattr(self.config, 'max_retries', 3), 1)
                     retry_count = 0
                     last_error = None
                     
@@ -1114,7 +1109,7 @@ class BaseAgent(ABC):
                             
                             # 🔥 使用原始的 self._llm，确保参数（temperature, max_tokens等）保留
                             _llm_start = time.time()
-                            final_response = self._llm.invoke(current_messages)
+                            final_response = single_attempt_model(self._llm).invoke(current_messages)
                             _llm_ms = int((time.time() - _llm_start) * 1000)
                             # 成功，跳出重试循环
                             break
@@ -1124,19 +1119,7 @@ class BaseAgent(ABC):
                             last_error = e
                             
                             # 🔥 检查是否是 choices 为 null 的错误或其他可重试的错误
-                            is_retryable = (
-                                "choices" in error_msg.lower() or 
-                                "null value" in error_msg.lower() or
-                                "connection" in error_msg.lower() or
-                                "timeout" in error_msg.lower() or
-                                "rate_limit" in error_msg.lower() or  # 🔧 下划线格式
-                                "rate limit" in error_msg.lower() or
-                                "429" in error_msg or  # 🔧 直接匹配 429 状态码
-                                "503" in error_msg or
-                                "502" in error_msg or
-                                "500" in error_msg or
-                                "limit" in error_msg.lower()  # 🔧 兜底
-                            )
+                            is_retryable = is_retryable_llm_error(error_msg)
                             
                             if is_retryable and retry_count < max_retries:
                                 retry_count += 1

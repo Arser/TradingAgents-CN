@@ -8,6 +8,18 @@
   >
     <div v-loading="loading" class="task-detail">
       <template v-if="taskDetail">
+        <el-card v-if="taskDetail.execution_issues?.length" shadow="never" class="section-card">
+          <template #header>执行问题（报告已保留）</template>
+          <el-alert
+            v-for="(issue, index) in taskDetail.execution_issues"
+            :key="index"
+            :title="`${issue.field}：${issue.message}`"
+            type="warning"
+            :closable="false"
+            show-icon
+            style="margin-bottom: 8px"
+          />
+        </el-card>
         <!-- 基本信息 -->
         <el-card shadow="never" class="section-card">
           <template #header>

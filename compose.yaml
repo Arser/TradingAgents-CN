@@ -1,0 +1,173 @@
+# 日志总容量：普通容器 50MB × 4 = 200MB，MongoDB 100MB × 5 = 500MB。
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "4"
+
+x-service: &default-service
+  restart: unless-stopped
+  logging: *default-logging
+  networks:
+    - tradingagents-network
+
+services:
+  mongodb:
+    <<: *default-service
+    image: mongo:7.0.37
+    container_name: tradingagents-v3-mongodb
+    stop_grace_period: 60s
+    volumes:
+      - ./mapped/data/db:/data/db
+    environment:
+      TZ: Asia/Shanghai
+      MONGO_INITDB_ROOT_USERNAME: ${MONGODB_USERNAME:?}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGODB_PASSWORD:?}
+      MONGO_INITDB_DATABASE: ${MONGODB_DATABASE:?}
+    # 不使用文件日志；mongod 的标准输出由 Docker 按容量轮转。
+    command:
+      - mongod
+      - --auth
+      - --bind_ip_all
+      - --keyFile
+      - /data/db/.mongodb-keyfile
+      - --wiredTigerCacheSizeGB
+      - "0.5"
+      - --setParameter
+      - enableLocalhostAuthBypass=false
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "5"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          mongosh --quiet --username "$$MONGO_INITDB_ROOT_USERNAME"
+          --password "$$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin
+          --eval 'quit(db.adminCommand({ping:1}).ok ? 0 : 1)'
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  redis:
+    <<: *default-service
+    image: redis:7.4.7-alpine
+    container_name: tradingagents-v3-redis
+    stop_grace_period: 30s
+    volumes:
+      - ./mapped/var/lib/redis:/data
+    environment:
+      TZ: Asia/Shanghai
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?}
+      REDISCLI_AUTH: ${REDIS_PASSWORD:?}
+    command:
+      - sh
+      - -c
+      - >-
+        exec redis-server --appendonly yes --requirepass "$$REDIS_PASSWORD"
+        --maxmemory 2gb --maxmemory-policy allkeys-lru --maxclients 1000
+        --logfile ""
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  backend:
+    <<: *default-service
+    image: tradingagents-cn-backend:local
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
+      args:
+        SOURCE_COMMIT: ${SOURCE_COMMIT:-unknown}
+    container_name: tradingagents-v3-backend
+    stop_grace_period: 60s
+    expose:
+      - "8000"
+    volumes:
+      - ./mapped/app/logs:/app/logs
+      - ./mapped/app/data:/app/data
+      - ./mapped/app/runtime:/app/runtime
+      - ./deployment/config/logging.toml:/app/config/logging_docker.toml:ro
+      - ./deployment/config/logging.toml:/app/config/logging.toml:ro
+    env_file:
+      - .env
+    environment:
+      SYSTEM_PROMPT_AUTO_UPDATE: "false"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      searxng:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, curl, -fsS, http://localhost:8000/api/health]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  frontend:
+    <<: *default-service
+    image: tradingagents-cn-frontend:local
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+    container_name: tradingagents-v3-frontend
+    environment:
+      TZ: Asia/Shanghai
+      VITE_API_BASE_URL: /api
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1/frontend-health]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  nginx:
+    <<: *default-service
+    image: nginx:stable-alpine
+    container_name: tradingagents-v3-nginx
+    ports:
+      - "8082:80"
+    environment:
+      TZ: Asia/Shanghai
+    volumes:
+      - ./deployment/config/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1/health]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  searxng:
+    <<: *default-service
+    image: searxng/searxng:latest@sha256:9b61996edcc679fb6665290f95fda15389a14eda6060e41a25c63ab2758f2436
+    container_name: tradingagents-v3-searxng
+    environment:
+      TZ: Asia/Shanghai
+      SEARXNG_SETTINGS_PATH: /etc/searxng/settings.yml
+    volumes:
+      - ./deployment/config/searxng-settings.yml:/etc/searxng/settings.yml:ro
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://localhost:8080/healthz]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+networks:
+  tradingagents-network:
+    driver: bridge

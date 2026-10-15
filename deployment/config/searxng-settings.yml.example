@@ -1,0 +1,64 @@
+# SearXNG 配置模板。复制为 searxng-settings.yml 后再按需修改。
+# 实际配置文件可能包含本机密钥，已由 .gitignore 排除。
+
+use_default_settings: true
+
+general:
+  debug: false
+  instance_name: "TradingAgents-CN Search"
+
+search:
+  formats: [html, json]
+  safe_search: 0
+  autocomplete: ""
+  default_lang: "zh"
+  ban_time_on_fail: 5
+  max_ban_time_on_fail: 120
+
+server:
+  port: 8080
+  bind_address: "0.0.0.0"
+  base_url: false
+  limiter: false
+  public_instance: false
+  secret_key: "replace-with-a-random-secret"
+  image_proxy: false
+  method: "POST"
+  default_http_headers:
+    X-Content-Type-Options: nosniff
+    X-Download-Options: noopen
+    X-Robots-Tag: noindex, nofollow
+    Referrer-Policy: no-referrer
+
+valkey:
+  url: false
+
+outgoing:
+  request_timeout: 2.0
+  max_request_timeout: 5.0
+  useragent_suffix: ""
+  pool_connections: 100
+
+engines:
+  - name: baidu
+    engine: baidu
+    baidu_category: general
+    categories: [general]
+    shortcut: bd
+    disabled: false
+
+  - name: 360search
+    engine: 360search
+    shortcut: 360so
+    disabled: false
+
+  - name: bing
+    engine: bing
+    shortcut: bi
+    disabled: false
+    base_url: https://cn.bing.com
+
+  - name: sogou
+    engine: sogou
+    shortcut: sogou
+    disabled: false

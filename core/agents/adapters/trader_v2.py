@@ -20,8 +20,7 @@ logger = logging.getLogger(__name__)
 # 目的：与 risk_manager_v2 / research_manager_v2 形成同构的"规格驱动"闭环，
 # 让 LLM 输出从"自由决策"降级为"按预定义结构翻译"，从源头消除合规风险。
 # 由于 trader_v2 输出是用户可读的 Markdown 简报（非结构化 JSON 决策），
-# 这里采用"合规约束 prompt 前置 + 术语扫描校验"的轻量模式，
-# 不强制 JSON schema，但显式上报合规违规，便于监控和排查。
+# 保留简报结构检查；不因正文中出现买卖或观点术语判定输出失败。
 
 
 # 研究整合员合规约束 & 简报结构契约。
@@ -57,14 +56,6 @@ TRADER_COMPLIANCE_PROMPT = """【合规性约束·必须严格遵守】
 
 """
 
-
-# 合规禁用术语表（校验管线使用，与 prompt 约束保持一致）
-TRADER_FORBIDDEN_TERMS: Tuple[str, ...] = (
-    "看涨", "看跌", "买入", "卖出", "加仓", "减仓", "清仓",
-)
-
-# 注意："持有" 在简报中可能出现于"持有该观点"等非交易语境，单独校验会产生误报，
-# 因此不放入强制禁用表，仅在 prompt 层面约束。如需更严格校验，可在此添加。
 
 # 简报必备章节标记（校验管线使用，与数据库模板 version 14 章节名一致）
 TRADER_REQUIRED_SECTIONS: Tuple[str, ...] = (
@@ -244,9 +235,9 @@ class TraderV2(TraderAgent):
 
     def execute(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """
-        执行研究简报生成，并添加合规校验显式上报。
+        执行研究简报生成，并显式上报结构校验结果。
 
-        重写父类方法以在 LLM 输出后添加合规术语扫描和结构完整性校验，
+        重写父类方法以在 LLM 输出后添加结构完整性校验，
         让错误显式化（参考 risk_manager_v2 / research_manager_v2 的校验管线模式）。
 
         校验策略：
@@ -315,7 +306,7 @@ class TraderV2(TraderAgent):
                     recorder.trace.llm_duration_ms = _llm_duration_ms
                 recorder.record_parsed_output(decision_value if isinstance(decision_value, dict) else decision_text)
 
-            # 🔥 合规校验（让错误显式化，不静默兜底）
+            # 结构校验（让错误显式化，不静默兜底）
             validation_warning = self._validate_trader_output(decision_text)
 
             # 🔥 P2: 执行断言（非阻塞）。TraderV2 继承 TraderAgent（非 ManagerAgent），
@@ -342,7 +333,7 @@ class TraderV2(TraderAgent):
 
             # 合并断言结果到 validation_status
             if validation_warning is None and not assertion_has_error:
-                logger.info("✅ [TraderV2] 合规校验通过")
+                logger.info("✅ [TraderV2] 结构校验通过")
                 result["trader_plan_validation_status"] = "passed"
                 if recorder:
                     # 用 set_validation 更新内存对象，确保 finish() 的 insert 携带 validation
@@ -353,9 +344,9 @@ class TraderV2(TraderAgent):
                         validation_details={"assertion_violations": assertion_violations_dump},
                     )
             else:
-                # 合规校验或断言 error 违规任一失败 → failed
+                # 结构校验或断言 error 违规任一失败 → failed
                 if validation_warning:
-                    logger.warning(f"⚠️ [TraderV2] 合规校验发现问题: {validation_warning}")
+                    logger.warning(f"⚠️ [TraderV2] 结构校验发现问题: {validation_warning}")
                     logger.warning(f"⚠️ [TraderV2] 原始输出前 500 字符: {decision_text[:500]}")
                 if assertion_has_error:
                     logger.warning(
@@ -392,10 +383,10 @@ class TraderV2(TraderAgent):
 
     def _validate_trader_output(self, text: str) -> Optional[str]:
         """
-        校验 LLM 输出的合规性和结构完整性。
+        校验 LLM 输出的结构完整性。
 
         由于 trader_v2 输出是用户可读的 Markdown 简报（非结构化 JSON），
-        本方法采用"合规术语扫描 + 结构完整性检查"的轻量模式，
+        本方法只检查空输出和必备章节，正文用词不影响校验状态，
         检测到违规时返回警告字符串（保留原输出），通过则返回 None。
 
         Args:
@@ -410,12 +401,7 @@ class TraderV2(TraderAgent):
 
         warnings: List[str] = []
 
-        # 1. 合规术语扫描（检测交易指令或市场观点术语）
-        found_forbidden = [term for term in TRADER_FORBIDDEN_TERMS if term in text]
-        if found_forbidden:
-            warnings.append(f"检测到不合规术语: {found_forbidden}")
-
-        # 2. 结构完整性检查（必备章节标记）
+        # 结构完整性检查（必备章节标记）
         missing_sections = [s for s in TRADER_REQUIRED_SECTIONS if s not in text]
         if missing_sections:
             warnings.append(f"缺少必备章节: {missing_sections}")

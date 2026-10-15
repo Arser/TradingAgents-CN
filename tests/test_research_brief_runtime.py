@@ -55,8 +55,7 @@ def test_sanitize_analysis_payload_strips_legacy_execution_fields() -> None:
     assert "risk_exposure_ratio" not in sanitized["decision"]
     assert "stop_loss" not in sanitized["decision"]
     assert sanitized["recommendation"].startswith("研究判断：乐观；")
-    assert "目标价" not in sanitized["recommendation"]
-    assert "仓位" not in sanitized["recommendation"]
+    assert "建议买入，目标价100元，仓位20%" in sanitized["recommendation"]
 
 
 def test_format_decision_keeps_research_brief_fields_only() -> None:
@@ -180,7 +179,7 @@ def test_sanitize_display_report_text_normalizes_legacy_disclaimer() -> None:
     assert "本报告仅供研究参考，不构成个股推荐、投资建议或操作依据。请结合公开信息披露与自身研究独立判断。" in sanitized
 
 
-def test_sanitize_display_report_text_removes_price_and_actionable_lines() -> None:
+def test_sanitize_display_report_text_preserves_price_and_actionable_lines() -> None:
     raw_text = """## 情景结论
 
 当前判断仍依赖后续财报与经营数据验证。
@@ -200,12 +199,12 @@ def test_sanitize_display_report_text_removes_price_and_actionable_lines() -> No
     assert "当前判断仍依赖后续财报与经营数据验证。" in sanitized
     assert "下一期财报是否披露更完整的资产质量数据" in sanitized
     assert "监管口径是否出现变化" in sanitized
-    assert "12.8-13.5元区间" not in sanitized
-    assert "突破11.33元" not in sanitized
-    assert "60%-80%风险敞口" not in sanitized
+    assert "12.8-13.5元区间" in sanitized
+    assert "突破11.33元" in sanitized
+    assert "60%-80%风险敞口" in sanitized
 
 
-def test_sanitize_display_report_text_normalizes_legacy_titles_and_soft_investment_language() -> None:
+def test_sanitize_display_report_text_normalizes_titles_and_preserves_investment_language() -> None:
     raw_text = """## 新闻分析师研究报告
 
 该事件可能成为价值修复的起点，对配置型投资者具备一定吸引力。
@@ -219,11 +218,9 @@ def test_sanitize_display_report_text_normalizes_legacy_titles_and_soft_investme
 
     assert "## 新闻研究" in sanitized
     assert "## 行业板块研究" in sanitized
-    assert "价值修复的起点" not in sanitized
-    assert "配置型投资者" not in sanitized
-    assert "投资机会" not in sanitized
-    assert "估值与预期修复的早期信号" in sanitized
-    assert "研究型用户" in sanitized
+    assert "价值修复的起点" in sanitized
+    assert "配置型投资者" in sanitized
+    assert "投资机会" in sanitized
     assert "研究线索" in sanitized
 
 
@@ -293,12 +290,12 @@ def test_sanitize_position_analysis_payload_strips_execution_fields() -> None:
     assert sanitized["suggested_amount"] is None
     assert sanitized["confidence"] == 88.0
     assert "加仓" not in sanitized["action_reason"]
-    assert "止损" not in sanitized["action_reason"]
-    assert "目标价" not in sanitized["summary"]
+    assert "止损" in sanitized["action_reason"]
+    assert "目标价" in sanitized["summary"]
     assert sanitized["recommendation"].startswith("该持仓研究仅提供研究观察")
 
 
-def test_sanitize_analysis_payload_strips_news_and_sentiment_execution_language() -> None:
+def test_sanitize_analysis_payload_preserves_news_and_sentiment_execution_language() -> None:
     raw_result = {
         "reports": {
             "news_report": "建议买入，目标价12元。\n公司公告显示新产线投产，后续仍需跟踪放量节奏。",
@@ -310,11 +307,11 @@ def test_sanitize_analysis_payload_strips_news_and_sentiment_execution_language(
 
     sanitized = sanitize_analysis_payload(raw_result)
 
-    assert "买入" not in sanitized["summary"]
-    assert "目标价" not in sanitized["summary"]
+    assert "建议买入，目标价12元" in sanitized["reports"]["news_report"]
     assert "公司公告显示新产线投产" in sanitized["reports"]["news_report"]
     assert "讨论热度上升" in sanitized["reports"]["sentiment_report"]
-    assert all("买入" not in point for point in sanitized["key_points"])
+    assert any("买入" in point for point in sanitized["key_points"])
+    assert "社交媒体建议加仓并设置止损" in sanitized["reports"]["sentiment_report"]
 
 
 def test_sanitize_analysis_payload_demotes_inferential_core_evidence() -> None:
@@ -340,7 +337,7 @@ def test_sanitize_analysis_payload_demotes_inferential_core_evidence() -> None:
     assert "零售贷款占比推断超60%" in sanitized["decision"]["uncertainties"]
 
 
-def test_sanitize_analysis_payload_strips_index_and_sector_execution_language() -> None:
+def test_sanitize_analysis_payload_preserves_index_and_sector_execution_language() -> None:
     raw_result = {
         "reports": {
             "index_report": "建议关注3300点支撑位并逢低布局。\n流动性中性，仍需跟踪政策节奏。",
@@ -352,14 +349,14 @@ def test_sanitize_analysis_payload_strips_index_and_sector_execution_language() 
 
     sanitized = sanitize_analysis_payload(raw_result)
 
-    assert "支撑位" not in sanitized["summary"]
-    assert "配置建议" not in sanitized["summary"]
+    assert "支撑位" in sanitized["summary"]
+    assert "配置建议" in sanitized["reports"]["sector_report"]
     assert "流动性中性" in sanitized["reports"]["index_report"]
     assert "行业景气度修复" in sanitized["reports"]["sector_report"]
-    assert all("配置建议" not in point for point in sanitized["key_points"])
+    assert any("配置建议" in point for point in sanitized["key_points"])
 
 
-def test_sanitize_trade_review_payload_strips_future_trade_actions() -> None:
+def test_sanitize_trade_review_payload_preserves_future_trade_actions() -> None:
     raw_result = {
         "summary": "下次可在10元附近买回，并把仓位提升到五成。",
         "timing_analysis": "若回到10.2元可再次买入，跌破9.8元应止损。",
@@ -371,8 +368,8 @@ def test_sanitize_trade_review_payload_strips_future_trade_actions() -> None:
 
     sanitized = sanitize_trade_review_payload(raw_result)
 
-    assert "10元" not in sanitized["summary"]
-    assert "买入" not in sanitized["timing_analysis"]
-    assert "加仓" not in sanitized["position_analysis"]
-    assert all("买入" not in item for item in sanitized["suggestions"])
-    assert all("50%" not in item for item in sanitized["suggestions"])
+    assert "10元" in sanitized["summary"]
+    assert "买入" in sanitized["timing_analysis"]
+    assert "加仓" in sanitized["position_analysis"]
+    assert any("买入" in item for item in sanitized["suggestions"])
+    assert any("50%" in item for item in sanitized["suggestions"])

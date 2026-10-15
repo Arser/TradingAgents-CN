@@ -41,6 +41,7 @@ export enum TaskStatus {
  * 任务列表项
  */
 export interface TaskListItem {
+  warning_count?: number
   task_id: string
   task_type: TaskType
   status: TaskStatus
@@ -61,6 +62,7 @@ export interface TaskListItem {
  * 任务详情
  */
 export interface TaskDetail {
+  execution_issues?: Array<{ field: string; status: string; message: string }>
   task_id: string
   user_id: string
   task_type: TaskType

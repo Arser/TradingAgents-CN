@@ -958,6 +958,8 @@ def format_decision(
         'uncertainties': normalized_lists['uncertainties'],
         'invalidation_conditions': normalized_lists['invalidation_conditions'],
         'watch_items': normalized_lists['watch_items'],
+        **{key: dict(decision_raw[key]) for key in ('original_enum_values', 'enum_review_status')
+           if isinstance(decision_raw.get(key), dict)},
     }
 
 

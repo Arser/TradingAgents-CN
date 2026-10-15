@@ -48,6 +48,14 @@ Pro 版面向有更高阶研究工作流需求的用户，获取方式见项目�
 
 ## 快速开始
 
+### Docker Compose 部署
+
+Linux 服务器可使用 [Docker Compose 源码部署指南](DEPLOYMENT.md)，从源码构建前后端并启动
+MongoDB、Redis、Nginx 和 SearXNG。首次运行 `./docker/init.sh`，再运行 `./docker/rebuild.sh`，
+默认访问 `http://服务器地址:8082`。
+
+以下步骤适用于直接在本机运行 Python 后端与前端开发服务器。
+
 ### 环境要求
 
 - Python 3.11
@@ -56,7 +64,7 @@ Pro 版面向有更高阶研究工作流需求的用户，获取方式见项目�
 
 ### 安装 MongoDB / Redis
 
-本项目不自带数据库，请先自行安装并启动 MongoDB 与 Redis（版本要求见上）。任意一种安装方式都可以，只要**账号密码与端口和下一步的 `.env` 保持一致**。
+本机运行时，请先自行安装并启动 MongoDB 与 Redis（版本要求见上）。任意一种安装方式都可以，只要**账号密码与端口和下一步的 `.env` 保持一致**。
 
 | 系统 | MongoDB | Redis |
 |------|---------|-------|

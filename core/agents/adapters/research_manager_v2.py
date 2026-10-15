@@ -8,9 +8,10 @@
 import logging
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import Field, ValidationError
 
 from ..manager import ManagerAgent
+from ..output_normalization import NormalizedConclusionOutput, validate_report, pending_enum_fields
 from ..config import AgentMetadata, AgentCategory, LicenseTier, AgentInput, AgentOutput
 from ..registry import register_agent
 
@@ -20,14 +21,13 @@ logger = logging.getLogger(__name__)
 # ==================== Schema 契约定义 ====================
 # 目的：让 LLM 从"自由决策输出格式"降级为"翻译一份预定义 schema"，
 # 从源头消除格式不一致（参考桥水 Pat 的"规格驱动"思路，与 risk_manager_v2 同构）。
-# 合规要求：analysis_view 只能取值 "乐观"/"审慎"/"中性"，
-# 禁止使用"看涨/看跌/买入/卖出"等交易指令或市场观点术语。
+# analysis_view 使用固定标签供下游读取，明确的同义表达会规范化并保留原文。
 
 
-class ResearchManagerOutput(BaseModel):
+class ResearchManagerOutput(NormalizedConclusionOutput):
     """研究整合员平衡研究结论 schema"""
-    # 合规术语：乐观/审慎/中性（禁止使用"看涨/看跌/买入/卖出"等交易指令或市场观点术语）
-    analysis_view: Literal["乐观", "审慎", "中性"]
+    view_fields = ("analysis_view",)
+    analysis_view: Literal["乐观", "审慎", "中性", "待确认"]
     confidence: float = Field(ge=0, le=1)
     risk_score: float = Field(ge=0, le=1)
     summary: str
@@ -271,6 +271,11 @@ class ResearchManagerV2(ManagerAgent):
         result = super().execute(state)
         logger.info("✅ 父类 execute 方法执行完成")
 
+        raw_output = result.get(self.output_field)
+        if isinstance(raw_output, dict) and raw_output.get("success") is False:
+            # Keep upstream API failures intact; do not misreport them as JSON errors.
+            return result
+
         # 提取决策内容
         decision_value = result.get(self.output_field, "")
         logger.info(f"📝 决策输出字段: {self.output_field}")
@@ -326,6 +331,14 @@ class ResearchManagerV2(ManagerAgent):
                         "confidence": validated_dict.get("confidence"),
                         "assertion_violations": assertion_violations_dump,
                     },
+                )
+            pending = pending_enum_fields(validated_dict)
+            if pending and result.get("investment_plan_validation_status") == "passed":
+                result["investment_plan_validation_status"] = "pending_review"
+                result["investment_plan_validation_warning"] = "字段待确认: " + ", ".join(pending)
+                self._record_trace_validation(
+                    validation_status="pending_review",
+                    validation_details={"pending_enum_fields": pending},
                 )
             decision_content = result[self.output_field]
         else:
@@ -385,34 +398,7 @@ class ResearchManagerV2(ManagerAgent):
             (validated_dict, None): 校验通过，dict 可直接序列化为 JSON
             (None, error_msg): 校验失败，error_msg 描述失败原因
         """
-        import json
-        import re
-
-        if not text or not text.strip():
-            return None, "输出为空"
-
-        # 兼容 markdown 代码块包裹的 JSON（```json ... ``` 或 ``` ... ```）
-        text = text.strip()
-        json_str = text
-        json_match = re.search(r'```(?:json)?\s*(.*?)\s*```', text, re.DOTALL)
-        if json_match:
-            json_str = json_match.group(1).strip()
-
-        # 解析 JSON
-        try:
-            json_obj = json.loads(json_str)
-        except json.JSONDecodeError as e:
-            return None, f"JSON 解析失败: {e}"
-
-        if not isinstance(json_obj, dict):
-            return None, f"JSON 顶层不是对象，实际类型: {type(json_obj).__name__}"
-
-        # pydantic schema 校验（含合规术语枚举约束、数值范围约束）
-        try:
-            validated = ResearchManagerOutput(**json_obj)
-            return validated.model_dump(), None
-        except ValidationError as e:
-            return None, f"Schema 校验失败: {e}"
+        return validate_report(text, ResearchManagerOutput, getattr(self, "_llm", None))
 
     def _build_system_prompt(self, state: Dict[str, Any] = None) -> str:
         """

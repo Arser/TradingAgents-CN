@@ -1010,6 +1010,9 @@ class TaskAnalysisService:
                     "summary": ftd_summary,
                     "risk_warning": final_trade_decision.get("risk_warning", "")
                 }
+                for key in ("original_enum_values", "enum_review_status"):
+                    if isinstance(final_trade_decision.get(key), dict):
+                        decision_dict[key] = dict(final_trade_decision[key])
                 self.logger.info(f"✅ [TaskAnalysisService] 从 final_trade_decision (字典) 提取决策: action={decision_dict.get('action')}, target_price={decision_dict.get('target_price')}, risk_score={decision_dict.get('risk_score')}, reasoning长度={len(reasoning_to_use)}")
             elif isinstance(final_trade_decision, str) and final_trade_decision.strip():
                 # 如果是字符串，提取所有字段（包括 reasoning）
@@ -1545,6 +1548,8 @@ class TaskAnalysisService:
         }
 
         # 透传工作流引擎生成的 report_manifest（自定义工作流产出物描述）
+        from app.utils.execution_issues import collect_execution_issues
+        formatted_result["execution_issues"] = collect_execution_issues(raw_result)
         if raw_result.get("report_manifest"):
             formatted_result["report_manifest"] = raw_result["report_manifest"]
 
@@ -1665,7 +1670,9 @@ class TaskAnalysisService:
             'risk_score': risk_score,
             'target_price': None,  # 🔥 不提供具体价格（合规要求）
             'price_analysis_range': price_analysis_range,  # 🔥 价格区间（合规）
-            'reasoning': reasoning
+            'reasoning': reasoning,
+            **{key: dict(decision[key]) for key in ('original_enum_values', 'enum_review_status')
+               if isinstance(decision.get(key), dict)},
         }
 
     def _extract_decision_from_text(self, text: str) -> Dict[str, Any]:

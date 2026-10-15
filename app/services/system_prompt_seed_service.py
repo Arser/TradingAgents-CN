@@ -5,6 +5,7 @@
 """
 
 import logging
+import os
 from datetime import datetime
 from typing import Any, Dict, List
 
@@ -495,6 +496,9 @@ class SystemPromptSeedService:
             "updated_at": now,
         }
         if existing:
+            # 可关闭已有模板的自动更新，保留用户自定义内容。
+            if os.getenv("SYSTEM_PROMPT_AUTO_UPDATE", "true").lower() in {"false", "0", "no"}:
+                return "unchanged"
             needs_update = any(existing.get(field) != payload[field] for field in ["template_name", "content", "remark", "status"])
             if not needs_update:
                 return "unchanged"

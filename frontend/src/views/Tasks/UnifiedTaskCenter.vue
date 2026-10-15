@@ -105,10 +105,13 @@
             {{ row.market || '-' }}
           </template>
         </el-table-column>
-        <el-table-column label="状态" width="100">
+        <el-table-column label="状态" width="140">
           <template #default="{ row }">
             <el-tag :type="getTaskStatusColor(row.status)">
               {{ getTaskStatusName(row.status) }}
+            </el-tag>
+            <el-tag v-if="row.warning_count" type="warning" size="small" style="margin-top: 4px">
+              {{ row.warning_count }} 项待检查
             </el-tag>
           </template>
         </el-table-column>

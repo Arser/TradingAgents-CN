@@ -13,6 +13,7 @@ from app.models.analysis import AnalysisTaskType, AnalysisStatus
 from app.models.user import PyObjectId
 from app.services.task_analysis_service import get_task_analysis_service
 from app.routers.auth_db import get_current_user
+from app.utils.execution_issues import collect_execution_issues
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,7 @@ class TaskListItem(BaseModel):
     completed_at: Optional[str] = None
     execution_time: float = 0.0
     error_message: Optional[str] = None
+    warning_count: int = 0
     
     # 任务参数（用于显示）
     symbol: Optional[str] = None
@@ -106,6 +108,7 @@ async def get_task_list(
                 completed_at=task.completed_at.isoformat() if task.completed_at else None,
                 execution_time=task.execution_time,
                 error_message=task.error_message,
+                warning_count=len(collect_execution_issues(task.result)),
                 symbol=symbol,
                 code=code,
                 market=market
@@ -173,9 +176,11 @@ async def get_task_detail(
         if task.user_id != user_id:
             raise HTTPException(status_code=403, detail="无权访问此任务")
         
+        detail = task.model_dump()
+        detail["execution_issues"] = collect_execution_issues(task.result)
         return {
             "success": True,
-            "data": task.model_dump(),
+            "data": detail,
             "message": "ok"
         }
         

@@ -469,6 +469,7 @@ async def precheck_analysis(
         # ── 2. 检查基础数据同步 ──
         db = get_mongo_db()
         basics_count = await db["stock_basic_info"].count_documents({})
+        basics_count += await db["etf_basic_info"].count_documents({})
         if basics_count == 0:
             return {
                 "can_submit": False,
@@ -488,6 +489,8 @@ async def precheck_analysis(
             # 同时匹配 code 和 symbol 字段
             query = {"$or": [{"code": sym}, {"symbol": sym}]}
             doc = await db["stock_basic_info"].find_one(query)
+            if doc is None:
+                doc = await db["etf_basic_info"].find_one(query)
             target_exists = doc is not None
 
         if symbol and not target_exists:

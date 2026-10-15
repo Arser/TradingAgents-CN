@@ -362,6 +362,14 @@ class WorkflowEngine:
             "_condition_result": FieldType.BOOLEAN,
             "_condition_error": FieldType.STRING,
             "_analysis_data_source": FieldType.STRING,
+            "investment_plan_validation_status": FieldType.STRING,
+            "investment_plan_validation_error": FieldType.STRING,
+            "investment_plan_validation_warning": FieldType.STRING,
+            "risk_assessment_validation_status": FieldType.STRING,
+            "risk_assessment_validation_error": FieldType.STRING,
+            "risk_assessment_validation_warning": FieldType.STRING,
+            "trader_plan_validation_status": FieldType.STRING,
+            "trader_plan_validation_error": FieldType.STRING,
             # 外部事实记忆注入（智能助手联网提取的事实，供辩论/风险评估环节参考）
             "memory_facts_summary": FieldType.STRING,
             # 持仓分析工作流输入：position_info/portfolio_data 若不声明，LangGraph 动态

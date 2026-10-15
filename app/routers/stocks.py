@@ -596,10 +596,6 @@ async def get_fundamentals(
     # A股：使用现有逻辑
     db = get_mongo_db()
     code6 = normalized_code
-    # P0 因子快照含同步 Mongo 查询与 Tushare 分红数据拉取，实测可达 20s+，
-    # 必须放线程池执行，否则会阻塞事件循环导致整个后端接口无响应
-    p0_snapshot = await asyncio.to_thread(_get_p0_fundamental_snapshot, code6)
-
     if _is_cn_etf_code(code6):
         if source:
             etf_doc = await db["etf_basic_info"].find_one(
@@ -625,6 +621,9 @@ async def get_fundamentals(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="未找到该 ETF 的基础信息")
 
         return ok(data=_build_etf_fundamentals_data(etf_doc, latest_quote))
+
+    # ETF 使用基金信息；个股 P0 快照中的分红拉取必须在线程池中执行。
+    p0_snapshot = await asyncio.to_thread(_get_p0_fundamental_snapshot, code6)
 
     # 1. 获取基础信息（支持数据源筛选）
     query = {"code": code6}

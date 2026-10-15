@@ -327,13 +327,14 @@ async def lifespan(app: FastAPI):
 
     # 恢复已启用的 MCP 服务器工具到 ToolRegistry
     # 后端重启后，MCP 工具不会自动注册，需要从 mcp_server_configs 集合恢复
-    try:
-        from app.pro.services.mcp_service import MCPService
-        mcp_service = MCPService(db)
-        await mcp_service.restore_enabled_servers()
-        logger.info("✅ MCP 服务器工具恢复完成")
-    except Exception as e:
-        logger.error(f"❌ MCP 服务器工具恢复失败: {e}", exc_info=True)
+    if (Path(__file__).parent / "pro/services/mcp_service.py").is_file():
+        try:
+            from app.pro.services.mcp_service import MCPService
+            mcp_service = MCPService(db)
+            await mcp_service.restore_enabled_servers()
+            logger.info("✅ MCP 服务器工具恢复完成")
+        except Exception as e:
+            logger.error(f"❌ MCP 服务器工具恢复失败: {e}", exc_info=True)
 
     #  配置桥接：将统一配置写入环境变量，供 TradingAgents 核心库使用
     try:
@@ -971,13 +972,14 @@ async def lifespan(app: FastAPI):
             except Exception as _e:
                 logger.warning(f"[SkillReview·定时] 过期清理失败: {_e}")
 
-        scheduler.add_job(
-            _expire_stale_skill_reviews,
-            IntervalTrigger(minutes=30, timezone=settings.TIMEZONE),
-            id="skill_review_expire_stale",
-            name="Skill 审核过期清理（每30分钟）"
-        )
-        logger.info("🔄 Skill 审核过期清理已配置（每 30 分钟）")
+        if (Path(__file__).parent / "pro/services/skill_review_service.py").is_file():
+            scheduler.add_job(
+                _expire_stale_skill_reviews,
+                IntervalTrigger(minutes=30, timezone=settings.TIMEZONE),
+                id="skill_review_expire_stale",
+                name="Skill 审核过期清理（每30分钟）"
+            )
+            logger.info("🔄 Skill 审核过期清理已配置（每 30 分钟）")
 
         scheduler.start()
 
